@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>colour worm</title>
+
+    <style>
+      body {
+        background-color: black;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      canvas {
+        background-color: black;
+        image-rendering: pixelated;
+        width: 100%;
+      }
+    </style>
+  </head>
+
+  <body>
+    <canvas id="canvas"></canvas>
+  </body>
+
+  <script>
+    const searchParams = new URLSearchParams(window.location.search);
+    const scale = searchParams.has('scale')
+      ? Number(searchParams.get('scale'))
+      : 8;
+    const branchingFactor = searchParams.has('branchingFactor')
+      ? Number(searchParams.get('branchingFactor'))
+      : 0.01;
+    const repeat = searchParams.has('repeat')
+      ? searchParams.get('repeat') === 'true'
+      : false;
+
+    const canvas = document.getElementById('canvas');
+    canvas.width = Math.ceil(window.innerWidth / scale);
+    canvas.height = Math.ceil(window.innerHeight / scale);
+
+    const ctx = canvas.getContext('2d');
+
+    function randomInteger(ceil) {
+      return Math.floor(Math.random() * ceil);
+    }
+
+    function isWithinBounds({ x, y }) {
+      return x >= 0 && y >= 0 && x < canvas.width && y < canvas.height;
+    }
+
+    const getPosition = (() => {
+      const positions = new Map(); // Single source of position objects for equality checks to work as-is
+
+      return (x, y) => {
+        if (!isWithinBounds({ x, y })) {
+          return null;
+        }
+
+        const hash = y * canvas.width + x;
+
+        let position = positions.get(hash);
+
+        if (!position) {
+          position = { x, y };
+          positions.set(hash, position);
+        }
+
+        return position;
+      };
+    })();
+
+    const paintPixel = (() => {
+      function* generateColors(totalPixels) {
+        let hue = Math.random() * 360; // Random starting hue
+        const step = 360 / totalPixels * (Math.random >= 0.5 ? 1 : -1); // Span the whole color space on the canvas as we go
+        while (true) {
+          hue += step;
+          yield 'hsl(' + hue + ', 90%, 70%)';
+        }
+      }
+
+      const colorGenerator = generateColors(canvas.width * canvas.height);
+
+      return ({ x, y }) => {
+        if (ctx.getImageData(x, y, 1, 1).data[0]) console.error(`repainting ${x},${y}`)
+        ctx.fillStyle = colorGenerator.next().value;
+        ctx.fillRect(x, y, 1, 1);
+      };
+    })();
+
+    function getNeighbors({ x, y }) {
+      const neighbors = [];
+
+      // Randomly ordered list of neighbors with possible nulls
+      neighbors.push(getPosition(x, y - 1));
+      neighbors.splice(randomInteger(2), 0, getPosition(x, y + 1));
+      neighbors.splice(randomInteger(3), 0, getPosition(x - 1, y));
+      neighbors.splice(randomInteger(4), 0, getPosition(x + 1, y));
+
+      return neighbors.filter(Boolean);
+    }
+
+    let queues;
+    let explored;
+
+    function reset() {
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const startPosition = getPosition(randomInteger(canvas.width), randomInteger(canvas.height));
+      queues = [[startPosition]];
+      explored = new Set();
+    }
+
+    function advance() {
+      for (const [queueIndex, queue] of queues.entries()) {
+        let position;
+        do {
+          position = queue.pop(); // Yeah, we talk about queues but use push & pop for performance
+        } while (explored.has(position));
+
+        if (position === undefined) { // Queue finished
+          queues.splice(queueIndex, 1);
+          continue;
+        }
+
+        if (Math.random() < branchingFactor) { // Random chance of branching
+          const newQueue = queue.splice(randomInteger(queue.length));
+          queues.push(newQueue);
+        }
+
+        paintPixel(position);
+
+        explored.add(position);
+
+        for (const neighbor of getNeighbors(position)) {
+          queue.push(neighbor);
+        }
+      }
+
+      if (queues.length === 0) {
+        if (repeat) {
+          setTimeout(() => {
+            reset();
+            advance();
+          }, 5000);
+        }
+
+        return; // We're done
+      }
+
+      requestAnimationFrame(advance);
+    }
+
+    reset();
+    advance();
+  </script>
+</html>
